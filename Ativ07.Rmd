@@ -1,0 +1,511 @@
+---
+title: "ME906 - Métodos em Aprendizado Supervisionado de Máquina"
+subtitle: "Atividade 07"
+output: 
+  bookdown::word_document2:
+     toc: FALSE
+urlcolor: blue
+bibliography: referencia.bib
+---
+
+
+```{r setup, include=FALSE}
+# Você pode alterar esse chunk caso ajude em ter um relatório mais organizado
+knitr::opts_chunk$set(echo = FALSE,message = FALSE)
+options(scipen=9999)
+```
+
+
+```{r,message=FALSE,warning=FALSE,results='hide'}
+# Carregue os pacotes aqui/modifique de acordo
+library(tidymodels)
+library(tidyverse)
+library(knitr)
+library(rsample)
+library(PerformanceAnalytics)
+library(patchwork)
+```
+
+# Introdução
+
+<!-- sua introdução aqui -->
+
+O Airbnb é uma empresa estadunidense fundada em agosto de 2008 em San Francisco, Califórnia por dois designers que hospedaram três pessoas que não estavam procurando um lugar para ficar. A empresa opera no mercado online de hospedagem, podendo ser acessada no site da empresa e se destaca em alugar casas para alojamentos e turismo, como aponta @guttentag2015airbnb.
+
+Dito isso, determinar o preço ideal para um imóvel de maneira eficiente, conforme o comportamento do mercado e condições do cliente, não é tarefa fácil para um proprietário. O mesmo vale para o cliente, pois saber quando está ou não pagando o justo também não é fácil. Por conta disso, muitas empresas acabam optando por contratar profissionais para a construção de modelos preditivos para determinar o preço ideal, visando maiores lucros e imóveis alugados. Essa ideia é melhor discutida em @kalehbasti2019airbnb.  
+
+# Exemplo
+
+<!-- REMOVA essa seção e todo seu conteúdo, é apenas um exemplo para configurações de tabelas/gráficos/bibliografia -->
+
+
+Como exemplo, usamos os dados de @henderson1981building:
+
+```{r tabX}
+# exemplo de um dado qq só para ilustrar a tabela
+dt <- mtcars[1:5, 1:6]
+kable(dt,booktabs = T,caption="Minha legenda aqui blablabla")
+```
+
+Exemplo de como referenciar essa tabela no texto. Na Tabela \@ref(tab:tabX) observa-se blablablabalba. Na Figura \@ref(fig:figX) blablablbalblablabla. Na Figura \@ref(fig:figY)......
+
+
+```{r figX}
+gg <- ggplot(mtcars,aes(x=mpg)) + geom_histogram(binwidth=5)
+gg
+```
+
+
+```{r figY}
+gg <- ggplot(mtcars,aes(y=mpg)) + geom_boxplot()
+gg
+```
+
+
+```{r}
+media <- mean(dt$mpg)
+```
+
+A média da variávelX é `r media`.
+
+# Objetivo
+
+Portanto, o objetivo deste trabalho é construir um bom modelo preditivo, usando técnicas de *machine learning*, para determinar o preço de Airbnb em Nova Iorque. Serão construídos três modelos preditivos e no final será concluído qual deles está melhor predizendo os preços.
+
+# Banco de dados 
+
+<!-- sua descriçao do banco de dados/variáveis aqui. Coloque a fonte/referência do banco de dados -->
+
+O conjunto de dados está disponível no [Kaggle](https://www.kaggle.com/c/sliced-s01e05-WXx7h8/data) e traz informações acerca de Airbnb listados na cidade de Nova Iorque. Portanto, as variáveis presentes são:
+
+   * id : identificador único
+   * name : nome da lista
+   * host_id : identificador único para o hóspede da listagem
+   * host_name : nome do hóspede
+   * neighbourhood_group : bairro onde a listagem está localizada (por exemplo, "Manhattan")
+   * neighbourhood : bairro onde a listagem está localizada (por exemplo, "East Harlem")
+   * latitude : latitude do local da listagem
+   * longitude : longitude da localização da listagem
+   * room_type : tipo de quarto ('Casa / apto inteiro', 'Quarto privado' ou 'Quarto compartilhado')
+   * price : custo por uma noite de reserva da listagem (isso é o que você está prevendo; presente apenas em `train.csv`)
+   * minimum_nights : número mínimo de noites necessárias para reservar o anúncio
+   * number_of_reviews : número de comentários que a listagem tem
+   * last_review : data em que a última revisão da listagem foi feita
+   * reviews_per_month : número de avaliações que a listagem recebe por mês, em média
+   * calculated_host_listings_count: número de listagem que o hóspede possui
+   * availability_365: número de dias do ano em que a lista está disponível
+   
+   
+O site dividiu, de forma aleatória, o conjunto de dados em duas partes: um de treinamento com 70% das observações e um de teste com as demais 30%. Mais adiante será explicado o intuito dessa divisão. 
+  
+
+```{r,message=FALSE,warning=FALSE}
+teste = read_csv("C:/Users/Usuario/Downloads/ativ_pasta/test.csv")
+treino = read_csv("C:/Users/Usuario/Downloads/ativ_pasta/train.csv")
+```
+
+<!-- Faça uma análise descritiva para avaliar os tipos de variáveis e verificar possíveis inconsistências nos dados. Faça filtros e modificações de acordo com o que julgar necessário, mencione clara e concisamente o que foi feito. Não apresente comandos no corpo do relatório e saídas desformatadas.-->
+
+<!-- Utilize esses dados "arrumados" nos passos seguintes.-->
+
+<!-- Alguma variável será descartada logo de início? Justifique, se for o caso-->
+
+
+De todas as variáveis listadas acima, as 4 primeiras, *id*, *name*, *host_id* e *host_name*, não entrarão no modelo por conta delas conterem informações muito específicas, servindo apenas para identificar o hóspede e o Airbnb. Não faria sentido predizer o preço do Airbnb através do nome do cliente e sua posição no conjunto de dados e por isso, essas variáves foram removidas.
+
+Além disso, a variável *last_review* traz informações acerca da data da última revisão que o Airbnb possuiu. Ela foi trasformada para anos. Ou seja, agora ela trará informações acerca do último ano em que aquele Airbnb foi avaliado. 
+
+Também foram retiradas, de ambos os conjuntos de dados, as informações faltantes de cada variável.
+
+
+```{r,message=FALSE,warning=FALSE,results='hide'}
+treino = read_csv("C:/Users/Usuario/Downloads/ativ_pasta/train.csv") %>%
+  select(-id,-name,-host_id, -host_name, - neighbourhood) %>% 
+  mutate(last_review = as.POSIXlt(last_review)$year + 1900)
+teste = read_csv("C:/Users/Usuario/Downloads/ativ_pasta/test.csv") %>% 
+  select(-id,-name,-host_id, -host_name, -neighbourhood) %>% 
+  mutate(last_review = as.POSIXlt(last_review)$year + 1900)
+treino = na.exclude(treino)
+teste = na.exclude(teste)
+```
+
+
+Por fim,  a variável *neighbourhood*, variável categórica, também foi removida por apresentar muitas categorias, sendo essas categorias uma expansão das presentes em *neighbourhood_group*.
+
+
+
+# Divisão dos dados
+
+<!-- Divida o dado de treinamento disponível no Kaggle em duas partes: Treino e Validação, lembre de colocar um set.seed antes. Cite quantas obs ficaram em cada conjunto de dados. -->
+
+A fim de buscar ao melhor modelo para predizer os preços, foi feita uma outra divisão no conjunto de treinamentos, onde 30% das observações foram selecionadas de forma aleatória para compôr o conjunto de valição e os 30% restantes formaram os dados de treinamento. Logo, o conjunto de treinamento antigo agora será chamado de conjunto de treino mais validação
+
+
+```{r}
+treino = treino %>% filter(price !=0)
+treino_validacao = treino
+set.seed(22021)
+split_teste <- initial_split(treino_validacao, prop=0.70,strata = price)
+#dados validação 
+validacao <- split_teste %>% testing()
+# dados treinamento 
+treino <- split_teste %>% training()
+```
+
+Portanto, o conjunto de treino e validação possuem juntos 27218 observações, sendo o de trenamento com 19050 e o de validação com 8168, e o conjunto de teste possui 11625 observações.
+
+
+
+
+
+<!-- Explique o propósito dessa divisão. -->
+
+Esta divisão tem como propósito ajudar a encontrar o melhor modelo e evitar que superajustamos um. Através dos dados de treinamento, serão ajustados modelos que consideramos razoáveis. Após isso, esses modelos serão comparados com os dados de validação e o melhor será aquele que possuir o menor Erro Quadrado Médio (isso quer dizer que será o modelo que melhor está predizendo dados novos). E o conjunto de dados teste servirá para vermos, através do EQM, se de fato a performace do modelo final escolhido (agora treinado pelo conjunto de dados de treino mais validação) está razoável com essas novas observações.
+
+
+# Análise exploratória
+
+<!-- Apresente análise exploratória relevante dos dados para auxiliar nos passos iniciais da busca por um modelo.  Quais gráficos são relevantes para mostrar associação com a resposta? Se usar gráficos de barra, como apresentar e interpretar? Boxplots? Não coloque gráficos sem justificar/interpretar. Na análise descritiva fazemos muitos gráficos, dos vários feitos, quais são interessantes para "contar a história", tendo em mente o objetivo-->
+
+
+Agora, vamos desconsirar os dados de teste e realizar uma análise exploratória nos conjuntos de treinamente e validação. As figuras \@ref(fig:fig1) e \@ref(fig:fig2) conseguem explicar como está a distribuição dos dados em cada variável. Note que a variável resposta *price*, além de apresentar vários outliers, possui uma distribuição parecida como a de uma exponencial. Uma maneira de aliviar os efeitos dos pontos discrepantes é aproximar essa distribuição para a normal. Para tal, vamos mudar a escala dessa variável para a logarítmica na base 10. O mesmo vale para as variáveis preditoras, *minimum_nights*, *number_of_reviews*, *"last_review"*, *reviews_per_month* e *calculated_host_listings_count*
+
+
+```{r}
+numericas <-treino_validacao %>% select_if(is.double) 
+```
+
+
+
+```{r fig1}
+colunas = colnames(numericas)[1:9]
+par(mfrow=c(3,3))
+for (v in colunas){hist(numericas[,v][[1]], main = v, xlab = "", ylab = "Frequência")}
+```
+
+```{r fig2}
+colunas = colnames(numericas)[1:9]
+par(mfrow=c(3,3))
+for (v in colunas){boxplot(numericas[,v][[1]], main = v, xlab = "", ylab = "Frequência")}
+```
+
+
+<!-- Caso decida utilizar transformação de alguma variável, criar outra variável, padronizar, etc... Aqui é o momento de motivar essas decisões. Se for este o caso, acrescente um parágrafo explicando as transformações que serão feitas (preprocessamento)-->
+
+
+
+
+```{r}
+numericas <-treino_validacao %>% 
+   select_if(is.double) %>% 
+   mutate(price = log(price,10),
+          minimum_nights = log(minimum_nights),
+          number_of_reviews = log10(number_of_reviews),
+          reviews_per_month = log10(reviews_per_month),
+          calculated_host_listings_count = log10(calculated_host_listings_count))
+
+treino_validacao <-treino_validacao %>%
+   mutate(price = log(price,10),
+          minimum_nights = log(minimum_nights),
+          number_of_reviews = log10(number_of_reviews),
+          reviews_per_month = log10(reviews_per_month),
+          calculated_host_listings_count = log10(calculated_host_listings_count))
+
+
+
+treino <-treino  %>%
+   mutate(price = log(price,10),
+          minimum_nights = log(minimum_nights),
+          number_of_reviews = log10(number_of_reviews),
+          reviews_per_month = log10(reviews_per_month),
+          calculated_host_listings_count = log10(calculated_host_listings_count))
+
+
+validacao <-validacao %>%
+   mutate(price = log(price,10),
+          minimum_nights = log(minimum_nights),
+          number_of_reviews = log10(number_of_reviews),
+          reviews_per_month = log10(reviews_per_month),
+          calculated_host_listings_count = log10(calculated_host_listings_count))
+
+
+teste <-teste %>% 
+   mutate(minimum_nights = log(minimum_nights),
+          number_of_reviews = log10(number_of_reviews),
+          reviews_per_month = log10(reviews_per_month),
+          calculated_host_listings_count = log10(calculated_host_listings_count))
+```
+
+
+
+
+
+
+
+
+<!-- Alguma variável será descartada logo de início? Justifique, se for o caso-->
+
+Após feita essas transformações, foram analisados o gráficos de disperções, correlações e distribuições das variáveis preditoras numéricas com a respostas. Tudo isso é possível observar na figura \@ref(fig:fig3). Nela, vemos que não há variáveis proditoras muito correlacionadas entre si a ponto de nos preocuparmos com a multicolinearidade. Também nota-se que a maioria delas possui correlações fracas com a variável resposta, com exceção da variável longitude. Entretanto, nenhuma delas será removida para a contrução do modelo
+
+
+```{r fig3}
+numericas = numericas %>% select(-price) %>% mutate(price = treino_validacao$price)
+chart.Correlation(numericas)
+```
+
+Por fim, vamos analisar como as variáveis catregóricas se relacionam com a reposta. Na figura \@ref(fig:fig4), é possível notar, pelas distribuições dos boxplots, que o bairro e o tipo de quarto interferem no preço do Airbnb 
+
+
+```{r fig4}
+treino_validacao %>%
+  ggplot()+
+  geom_boxplot(aes(x=neighbourhood_group, y=price, fill = neighbourhood_group))+xlab("bairro") +ylab("Preço do Airbnb")+
+  theme_minimal() + treino_validacao %>% 
+  ggplot()+
+  geom_boxplot(aes(x=room_type, y=price, fill = room_type))+xlab("tipo de quarto") +ylab("Preço do Airbnb")+
+  theme_minimal() 
+```
+
+
+
+
+<!-- Deixe claro qual será sua matrix X: o que será excluído, o que será criado/transformado. Apresente isso de maneira clara e concisa -->
+
+
+# Modelos propostos
+
+<!-- Utilize somente os dados de treinamento, considerando a matriz X após análise descritiva.-->
+
+<!-- Caso precise ajustar hiperparâmetros/tunning parameters, use alguma forma de validação cruzada, lembre de usar set.seed. -->
+
+<!-- Caso algum preprocessamento específico para um determinado método seja necessário, cite o que foi feito e em quais modelos isso foi considerado, se for o caso. O preprocessamento deve ser aplicado em cada parte da validação cruzada, não antes. -->
+
+<!-- Métodos podem ser LDA, QDA, Logística, LASSO, Ridge, KNN, árvores, bestglm (regsubsets para classificação), etc... escolha pelo menos 3 grandes grupos de métodos diferentes. --> 
+
+
+## Título do Método 1 
+## Modelo KNN
+
+
+
+<!-- Use validação cruzada nos dados de treinamento (k-dobras, por exemplo) se necessário. Lembre de usar `set.seed`. Explique os passos até chegar no *melhor* modelo usando essa técnica-->
+
+<!-- Ajuste-o nos dados de treinamento e apresente brevemente os resultados. -->
+ 
+<!-- Calcule as métricas de avaliação de desempenho do modelo nos dados de treinamento: matriz de confusão, acurácia, especificidade, sensibilidade, entre outras que julgar interessante/relevante ao seu problema específico. Quando apresentar qualquer métrica pela primeira vez, defina-a em detalhes-->
+
+
+
+```{r}
+library(caret)
+```
+
+
+```{r}
+train.control <- trainControl(method = "cv",
+                              number= 5,
+                              search = "grid")
+set.seed(22021)
+
+kgrid <- data.frame(k=c(1,seq(2,50,by = 2)))
+
+
+knn.fit <- train(price~.,
+                 data = treino,
+                 method = "knn",
+                 preProcess=c("center","scale"),
+                 trControl =train.control,
+                 tuneGrid = kgrid)
+
+```
+
+```{r}
+plot(knn.fit, pch=19)
+```
+Neste gráfico podemos percebe que o melhor MSEatrvés da validação cruzada se trata de k = 20 vizinhos
+
+```{r}
+
+
+knn.fit$results[11,]
+
+```
+No melhor k que encontramos podemos perceber que temos um erro quadrático médio EQM de 0.185575;
+
+```{r}
+knn.predict <- predict(knn.fit, newdata = teste)
+
+```
+
+Ajustando o modelo com o melhor número k de vizinhos:
+
+
+
+
+
+## Título do Método 2
+
+## Ajustando o modelo Ridge
+
+<!-- Use validação cruzada nos dados de treinamento (k-dobras, por exemplo) se necessário. Lembre de usar `set.seed`. Explique os passos até chegar no *melhor* modelo usando essa técnica-->
+
+<!-- Ajuste-o nos dados de treinamento e apresente brevemente os resultados. -->
+ 
+<!-- Calcule as métricas de avaliação de desempenho do modelo nos dados de treinamento: matriz de confusão, acurácia, especificidade, sensibilidade, entre outras que julgar interessante/relevante ao seu problema específico. Quando apresentar qualquer métrica pela primeira vez, defina-a em detalhes-->
+
+
+
+```{r}
+library(glmnet)
+```
+
+
+```{r}
+
+## Temos que definir o conjunto de variáveis preditoras e resposta
+x_var <- model.matrix(price~.,treino)[,-1]
+y_var <- treino$price
+
+lambda_seq<- 10^seq(2,-2,by=-.1)
+
+fit <- glmnet(x_var,y_var, alpha = 0,lambda=lambda_seq)
+summary(fit)
+fit$beta
+
+
+```
+
+Com isso nós devemos utilizar o melhor lambda e para descobrir qual se adequa menlhor temos:
+
+```{r}
+
+
+
+ridge_cv <- cv.glmnet(x_var,y_var,alpha = 0,lambda = lambda_seq)
+best_lambda <- ridge_cv$lambda.min
+best_lambda
+
+```
+
+```{r}
+best_fit <- ridge_cv$glmnet.fit
+head(best_fit)
+
+
+```
+
+Refazendo e utilizando o melhor lambda:
+
+
+```{r}
+best_ridge <- glmnet(x_var,y_var,alpha=0,lambda = best_lambda)
+
+
+```
+Estou usando um método visto no AME
+```{r}
+cv_ridge<- cv.glmnet(x_var, y_var, alpha = 0)
+
+ajuste_ridge<- glmnet(x_var, y_var, alpha = 0)
+
+
+predito_ridge<- predict(ajuste_ridge,
+                        s = cv_ridge$lambda.1se,
+                        newx = x_var)
+```
+
+
+## Título do Método 3
+
+
+## Árvore de regressão
+
+<!-- Use validação cruzada nos dados de treinamento (k-dobras, por exemplo) se necessário. Lembre de usar `set.seed`. Explique os passos até chegar no *melhor* modelo usando essa técnica-->
+
+<!-- Ajuste-o nos dados de treinamento e apresente brevemente os resultados. -->
+ 
+<!-- Calcule as métricas de avaliação de desempenho do modelo nos dados de treinamento: matriz de confusão, acurácia, especificidade, sensibilidade, entre outras que julgar interessante/relevante ao seu problema específico. Quando apresentar qualquer métrica pela primeira vez, defina-a em detalhes-->
+
+```{r}
+
+
+set.seed(22021)
+#model<-train(price~.,
+#             data=treino,
+#             method = "rpart",
+##             trControl = trainControl("cv",number = 10),
+#             tuneLenght=10
+#             )
+
+
+set.seed(123)
+model <- train(price ~.,
+               data=treino,
+               method = "rpart",
+               trControl = trainControl("cv", number = 10),
+
+tuneLength = 10
+)
+
+
+model$bestTune
+
+```
+
+
+```{r}
+plot(model)
+
+```
+
+
+```{r}
+rpart.plot::rpart.plot(model$finalModel)
+```
+
+
+```{r}
+predict_train <- model%>%predict(treino)
+rmse_arvore<-RMSE(predict_train,treino$price)
+mse_arvore=rmse_arvore^2
+mse_arvore
+```
+
+
+# Avaliação de modelos propostos
+
+<!-- Apresente o desempenho do modelo obtido no treino avaliando as predições na validação. Lembrando que mais de uma métrica pode ser usada para avaliar: ROC, AUC, acurácia, sensitividade, etc... ou MSE, MAE...--> 
+
+
+<!-- Baseando-se nessas informações, escolha o melhor modelo. Comente o que for necessário, justificando sua escolha. -->
+
+
+Calculamos o erro quadratico médio de todos os modelos e colocaremos numa tabela com o intuito de comparar:
+
+
+```{r}
+
+knn_mse=0.185575^2
+
+
+
+```
+
+
+
+# Modelo Final
+
+<!-- Destaque aqui seu modelo final (ajustado/treinado novamente considerando os dados de treinamento fornecidos pelo kaggle, ou seja, seu Treino+Validação conjuntamente), apresentando/interpretando em maiores detalhes. Caso as preditoras sejam interpretáveis, faça um balanço entre modelos com alto poder preditivo vs interpretabilidade na sua escolha-->
+
+<!-- Apresente o resultado das métricas de desempenho do seu modelo final (ajustado no treinamento fornecidos pelo kaggle) na predição dos dados teste do kaggle. Aqui, você deverá submeter sua predição, seguindos as instruções do Kaggle. Faça um print da sua submissão, mostrando seu resultado -->
+
+<!-- Escreva um trecho nessa parte, descrevendo esse modelo para uma pessoa "leiga". Acrescente gráficos para auxiliar no entendimento da solução proposta.--> 
+
+
+# Bibliografia
+
+<!-- não coloque nada aqui, será feito automaticamente se vc usar .bib e @ para citar referencias no texto, conforme o video explicativo indicado no roteiro-->
+
+<!-- para construir o .bib, use o cite https://www.doi2bib.org/, caso seja uma referência com DOI --> 
+
+<!-- ao utilizar cada método, cite o autor e também referencie o pacote utilizado, no R, pegue o .bib usando citation("nomedopacote") -->
